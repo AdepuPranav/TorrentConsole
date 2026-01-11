@@ -20,22 +20,22 @@ namespace TorrentConsole.Core
 
 
         public static TorrentMetaData Load(string path) { 
-          var data = File.ReadAllBytes(path);
-            var parser = new BencodeParser(data);
-            var root = parser.ParseDictionary();
+          byte[] data = File.ReadAllBytes(path);
+            var reader = new BencodeReader(data);
+            var root = (Dictionary<string,object>)reader.ReadNext();
+            var meta = new TorrentMetaData();
 
-            var info = (Dictionary<string , object>)root["info"];
+            meta.AnnounceUrl = Encoding.ASCII.GetString((byte[])root["announce"]);
+            var info = (Dictionary<string,object>)root["info"];
 
-            var metadata = new TorrentMetaData
-            {
-                AnnounceUrl = (string)root["announce"],
-                Name = (string)info["name"],
-                Length = (long)info["length"],
-                PieceLength = (int)(long)info["piece length"],
-                PieceHashes = SplitPieceHashes((byte[])info["pieces"]),
-                InfoHash = HashVerifier.Sha1(parser.GetInfoBytes())
-            };
-            return metadata;
+            meta.Name = Encoding.ASCII.GetString((byte[])info["name"]);
+            meta.Length = (long)info["length"];
+            meta.PieceLength = (int)(long)info["piece length"];
+
+            byte[] pieces = (byte[])info["pieces"];
+            meta.PieceHashes = SplitPieceHashes(pieces);
+            meta.InfoHash = ComputeInfoHash(info);
+            return meta;
         }
 
         private static byte[][] SplitPieceHashes(byte[] pieces)
@@ -48,7 +48,14 @@ namespace TorrentConsole.Core
                 Array.Copy(pieces, i * 20, hashes[i], 0, 20);
             }
             return hashes;
-        } 
+        }
+
+        private static byte[] ComputeInfoHash(Dictionary<string, object> info) 
+        {
+            byte[] bencodedInfo = BencodeEncoder.Encode(info);
+            return SHA1.HashData(bencodedInfo);
+
+        }
 
     }
 }

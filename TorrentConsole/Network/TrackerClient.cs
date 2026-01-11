@@ -4,8 +4,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Net.Http;
-using TorrentApplication.Utils;
-using TorrentApplication.Models;
+using TorrentConsole.Utils;
+using TorrentConsole.Models;
 using System.Text;
 
 namespace TorrentConsole.Network
