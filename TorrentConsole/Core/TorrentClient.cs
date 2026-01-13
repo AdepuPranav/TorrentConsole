@@ -43,14 +43,19 @@ namespace TorrentConsole.Core
         public async Task StartAsync() {
             Console.WriteLine("Contacting Tracker ...........");
 
-            var tracker = new TrackerClient(_metaData.AnnounceUrl, _metaData.InfoHash);
-            var peers = tracker.AnnounceAsync(_metaData.Length).Result;
+            foreach (var url in _metaData.AnnounceUrl) {
+                Console.WriteLine($"Trying Tracker : {url}");
+                var tracker = new TrackerClient(url, _metaData.InfoHash);
+                var peers = await tracker.AnnounceAsync(_metaData.Length);
 
-            Console.WriteLine($"Received {peers.Count} peers :");
-            foreach (var peer in peers) 
-            { 
-             Console.WriteLine(peer);
+                if (peers.Count > 0)
+                {
+                    Console.WriteLine($"Connected to {peers.Count} Peers");
+                    return;
+                }
+
             }
+            Console.WriteLine("No trackers responded with peers.");
 
         }
 

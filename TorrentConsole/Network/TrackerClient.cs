@@ -25,18 +25,27 @@ namespace TorrentConsole.Network
             _peerId = GeneratePeerId();
         }
 
-        public async Task<List<Peer>> AnnounceAsync(long left) {
+        public async Task<List<string>> AnnounceAsync(long left) {
+            var peers = new List<string>();
+            using var http = new HttpClient();
+            try
+            {
+                var url = BuildAnnounceUrl(left);
+                var response = await http.GetAsync(url);
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"Failed to announce to tracker: {response.StatusCode}");
+                    return peers;
+                }
+                var data = await response.Content.ReadAsByteArrayAsync();
+                peers = ParseTrackerResponse(data);
+            }
 
-            string url = BuildAnnounceUrl(left);
-
-            using var http = new HttpClient(); 
-            byte[] responseBytes = await http.GetByteArrayAsync(url);
-            return ParsePeers(responseBytes);
-        }
-
-
-        private string BuildAnnounceUrl(long left) {
-            return $"{_announceUrl}?" + $"info_hash = {UrlEncoding.Encode(_infoHash)}" + $"&peer_id = {_peerId}" + $"&port = {_port}" + $"&uploaded = 0" + "&downloaded=0" + $"&left = {left}" + "&compact = 1";
+            catch (Exception ex) 
+            {
+             Console.WriteLine($"Error announcing to tracker: {ex.Message}");
+            }
+            return peers;
         }
 
         private static string GeneratePeerId() {
@@ -59,6 +68,55 @@ namespace TorrentConsole.Network
             }
             return peers;
 
+        }
+
+        private string BuildAnnounceUrl(long left) 
+        {
+            return $"{_announceUrl}?" +
+                   $"info_hash={UrlEncoding.Encode(_infoHash)}" +
+                   $"&peer_id={_peerId}" +
+                   $"&port={_port}" +
+                   $"&uploaded=0" +
+                   "&downloaded=0" +
+                   $"&left={left}" +
+                   "&compact=1";
+        }   
+
+        private List<string> ParseTrackerResponse(byte[] data) 
+        {
+            var peers = new List<string>();
+
+            var parser = new Utils.BencodeReader(data);
+            var dict = (Dictionary<string,object>)parser.ReadNext();
+
+            if(dict.ContainsKey("failure reason")) 
+            {
+                string reason = Encoding.UTF8.GetString((byte[])dict["failure reason"]);
+                Console.WriteLine($"Tracker failure: {reason}");
+                return peers;
+            }
+
+            if (!dict.ContainsKey("peers"))
+                return peers;
+
+            var peersBytes = (byte[])dict["peers"] ;
+            if (peersBytes == null)
+                return peers;
+
+            for (int i = 0; i + 5 < peersBytes.Length; i += 6)
+            {
+                string ip =
+                    $"{peersBytes[i]}." +
+                    $"{peersBytes[i + 1]}." +
+                    $"{peersBytes[i + 2]}." +
+                    $"{peersBytes[i + 3]}";
+
+                int port = (peersBytes[i + 4] << 8) | peersBytes[i + 5];
+
+                peers.Add($"{ip}:{port}");
+            }
+            Console.WriteLine($"Received {peers.Count} peers from tracker.");
+            return peers;
         } 
 
     }

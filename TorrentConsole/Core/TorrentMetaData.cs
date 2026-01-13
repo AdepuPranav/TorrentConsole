@@ -16,7 +16,7 @@ namespace TorrentConsole.Core
         public int PieceLength { get; set; }
         public byte[][] PieceHashes { get; set; }
         public byte[] InfoHash { get; set; }
-        public string AnnounceUrl { get; set; }
+        public List<string> AnnounceUrl { get; set; } = new();
 
 
         public static TorrentMetaData Load(string path) { 
@@ -25,7 +25,24 @@ namespace TorrentConsole.Core
             var root = (Dictionary<string,object>)reader.ReadNext();
             var meta = new TorrentMetaData();
 
-            meta.AnnounceUrl = Encoding.ASCII.GetString((byte[])root["announce"]);
+            if (root.ContainsKey("announce")) 
+            {
+                meta.AnnounceUrl.Add(Encoding.UTF8.GetString((byte[])root["announce"]));
+            }
+
+            if (root.ContainsKey("announce-list")) 
+            {
+                var lists = (List<object>)root["announce-list"];
+                foreach (var tier in lists) 
+                {
+                    foreach (var url in (List<object>)tier) 
+                    {
+                        meta.AnnounceUrl.Add(Encoding.UTF8.GetString((byte[])url));
+                    }
+                }
+            }
+
+           
             var info = (Dictionary<string,object>)root["info"];
 
             meta.Name = Encoding.ASCII.GetString((byte[])info["name"]);
