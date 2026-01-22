@@ -53,7 +53,7 @@ namespace TorrentConsole.Network
             return "-CS0001-" + Guid.NewGuid().ToString("N")[..12];
         }
 
-        private List<Peer> ParsePeers(byte[] response) {
+        /*private List<Peer> ParsePeers(byte[] response) {
             var parser = new Utils.BencodeParser(response);
             var dict = parser.ParseDictionary();
 
@@ -68,7 +68,7 @@ namespace TorrentConsole.Network
             }
             return peers;
 
-        }
+        }*/
 
         private string BuildAnnounceUrl(long left) 
         {
