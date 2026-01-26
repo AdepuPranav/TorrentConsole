@@ -48,7 +48,7 @@ namespace TorrentConsole.Network
             return peers;
         }
 
-        private static string GeneratePeerId() {
+        public static string GeneratePeerId() {
 
             return "-CS0001-" + Guid.NewGuid().ToString("N")[..12];
         }
