@@ -10,6 +10,8 @@ namespace TorrentConsole.Models
     {
         public string IP { get; }
         public int Port { get; }
+
+        public byte[] Bitfield { get; set; }
         public Peer(string ip, int port) {
             IP = ip;
             Port = port;
