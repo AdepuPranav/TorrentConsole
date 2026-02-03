@@ -7,6 +7,7 @@ using System.Net.Http;
 using TorrentConsole.Utils;
 using TorrentConsole.Models;
 using System.Text;
+using System.Net;
 
 namespace TorrentConsole.Network
 {
@@ -25,8 +26,8 @@ namespace TorrentConsole.Network
             _peerId = GeneratePeerId();
         }
 
-        public async Task<List<string>> AnnounceAsync(long left) {
-            var peers = new List<string>();
+        public async Task<List<Peer>> AnnounceAsync(long left) {
+            var peers = new List<Peer>();
             using var http = new HttpClient();
             try
             {
@@ -82,9 +83,9 @@ namespace TorrentConsole.Network
                    "&compact=1";
         }   
 
-        private List<string> ParseTrackerResponse(byte[] data) 
+        private List<Peer> ParseTrackerResponse(byte[] data) 
         {
-            var peers = new List<string>();
+            var peers = new List<Peer>();
 
             var parser = new Utils.BencodeReader(data);
             var dict = (Dictionary<string,object>)parser.ReadNext();
@@ -105,15 +106,15 @@ namespace TorrentConsole.Network
 
             for (int i = 0; i + 5 < peersBytes.Length; i += 6)
             {
-                string ip =
-                    $"{peersBytes[i]}." +
-                    $"{peersBytes[i + 1]}." +
-                    $"{peersBytes[i + 2]}." +
-                    $"{peersBytes[i + 3]}";
+                var ip = new IPAddress(new byte[] { 
+                    peersBytes[i] ,
+                    peersBytes[i + 1] ,
+                    peersBytes[i + 2] ,
+                    peersBytes[i + 3]});
 
                 int port = (peersBytes[i + 4] << 8) | peersBytes[i + 5];
 
-                peers.Add($"{ip}:{port}");
+                peers.Add(new Peer(ip,port));
             }
             Console.WriteLine($"Received {peers.Count} peers from tracker.");
             return peers;

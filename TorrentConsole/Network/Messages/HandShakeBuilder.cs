@@ -17,7 +17,7 @@ namespace TorrentConsole.Network.Messages
             int offset = 0;
 
             buffer[offset++] = 19;
-            Encoding.ASCII.GetBytes("BitTorrent Protocol", 0, 19, buffer, offset);
+            Encoding.ASCII.GetBytes("BitTorrent protocol", 0, 19, buffer, offset);
             offset += 19;
 
             offset += 8;
@@ -28,6 +28,7 @@ namespace TorrentConsole.Network.Messages
             Encoding.ASCII.GetBytes(peerID, 0, 20, buffer, offset);
             offset += 20;
 
+            Console.WriteLine("Builded Handshake!");
             return buffer;
         }
     }

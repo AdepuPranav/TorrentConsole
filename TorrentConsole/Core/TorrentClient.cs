@@ -50,8 +50,21 @@ namespace TorrentConsole.Core
 
                 if (peers.Count > 0)
                 {
+                    
                     Console.WriteLine($"Connected to {peers.Count} Peers");
-                    return;
+                    foreach (var peer in peers) 
+                    {
+                        Console.WriteLine($"Peer IP : {peer.IP} /n Peer Port : {peer.Port}"); 
+                        string peerId = TrackerClient.GeneratePeerId();
+                        var Conn = new PeerConnection(peer, _metaData,_pieceManager,peerId);
+                        _ =  Conn.StartAsync(); 
+                      
+                        
+
+                    }
+                    await Task.Delay(-1);
+
+
                 }
 
             }
