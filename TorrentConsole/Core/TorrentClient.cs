@@ -13,6 +13,7 @@ namespace TorrentConsole.Core
         private readonly TorrentMetaData _metaData;
         private readonly PieceManager _pieceManager;
         private readonly DiskManager _diskManager;
+        private readonly SemaphoreSlim _connectionLimit = new SemaphoreSlim(20);
 
         
 
@@ -54,10 +55,28 @@ namespace TorrentConsole.Core
                     Console.WriteLine($"Connected to {peers.Count} Peers");
                     foreach (var peer in peers) 
                     {
-                        Console.WriteLine($"Peer IP : {peer.IP} /n Peer Port : {peer.Port}"); 
-                        string peerId = TrackerClient.GeneratePeerId();
-                        var Conn = new PeerConnection(peer, _metaData,_pieceManager,peerId);
-                        _ =  Conn.StartAsync(); 
+                        await _connectionLimit.WaitAsync();
+                        _ = Task.Run(async() =>
+                            {
+                                try
+                                {
+                                    Console.WriteLine($"Peer IP : {peer.IP} /n Peer Port : {peer.Port}");
+                                    string peerId = TrackerClient.GeneratePeerId();
+                                    var Conn = new PeerConnection(peer, _metaData, _pieceManager, peerId);
+                                    await Conn.StartAsync();
+                                }
+                                catch (Exception ex) 
+                                {
+                                    Console.WriteLine($"Peer Error : {ex.Message}");
+                                }
+                                finally
+                                {
+                                    _connectionLimit.Release();
+                                }
+                            }
+                            
+                            );
+                       
                       
                         
 

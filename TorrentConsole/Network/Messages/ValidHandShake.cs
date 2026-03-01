@@ -11,13 +11,14 @@ namespace TorrentConsole.Network.Messages
     {
         public void ValidateHandShake(byte[] response,TorrentMetaData _meta) 
         {
+            Console.WriteLine("Validating HandShake...");
             if (response[0] != 19)
             {
                 throw new Exception("Invalid handshake: incorrect protocol length");
             }
 
             string protocol = Encoding.ASCII.GetString(response, 1, 19);
-            if (protocol != "Bittorent protocol") 
+            if (protocol != "BitTorrent protocol") 
             {
                 throw new Exception("Invalid Protocol");
             }

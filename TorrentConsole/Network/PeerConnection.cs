@@ -102,6 +102,8 @@ namespace TorrentConsole.Network
         {
             Console.WriteLine("Reached ReceiveHandShake function");
             byte[] response = await ReadExactAsync(_networkStream, 68);
+            //checking if we received the handshake response correctly
+            Console.WriteLine(Encoding.ASCII.GetString(response, 1, 19));
             //checking if the response is valid 
             _validate.ValidateHandShake(response, _metaData);
 
