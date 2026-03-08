@@ -20,7 +20,7 @@ namespace TorrentConsole.Network
         private const int BLOCK_SIZE = 16 * 1024;
         private readonly Peer _peer;
         private readonly TorrentMetaData _metaData;
-        private TcpClient _tcpClient;
+        private TcpClient _client;
         private NetworkStream _networkStream;
         private readonly ValidHandShake _validate;
         private bool isChoked = false;
@@ -46,7 +46,7 @@ namespace TorrentConsole.Network
         public async Task ConnectAsync()
         {
             Console.WriteLine($"Connecting to {_peer.IP} : {_peer.Port}");
-            TcpClient _client = new TcpClient();
+             _client = new TcpClient();
             await _client.ConnectAsync(_peer.IP, _peer.Port);
 
             Console.WriteLine("TCP CLIENT CONNECTED!!");
@@ -65,7 +65,7 @@ namespace TorrentConsole.Network
             await Interested();
 
             await WaitforUnchokeAsync();
-            while (!_pieceManager.IsComplete()) 
+            while (!_pieceManager.IsTorrentComplete()) 
             {
                 var availablePieces = GetPeerPieces();
                 int? piece = _pieceManager.GetNextPiece(_peerId, availablePieces);
@@ -101,7 +101,8 @@ namespace TorrentConsole.Network
         private async Task ReceiveHandShake()
         {
             Console.WriteLine("Reached ReceiveHandShake function");
-            byte[] response = await ReadExactAsync(_networkStream, 68);
+            byte[] response = new byte[68];
+            await ReadExactAsync(response,0, 68);
             //checking if we received the handshake response correctly
             Console.WriteLine(Encoding.ASCII.GetString(response, 1, 19));
             //checking if the response is valid 
@@ -174,17 +175,34 @@ namespace TorrentConsole.Network
 
         private async Task DownloadPiece(int PieceIndex) 
         {
-            int pieceLength = _metaData.PieceLength;
+            int pieceLength = (PieceIndex == _metaData.PieceHashes.Length - 1) ? (int)(_metaData.Length - (long)PieceIndex * _metaData.PieceLength) : _metaData.PieceLength;
             byte[] pieceBuffer = new byte[pieceLength];
+        
+            int MaxPipeline = 5;
+            int inFlight = 0;
+            
 
+            var receivedOffsets = new HashSet<int>();
+            int receivedBytes = 0;  
             int offset = 0;
-
-            while (offset < pieceLength) 
+            while (receivedBytes < pieceLength)
             {
-                int requestSize = Math.Min(BLOCK_SIZE, pieceLength - offset);
-                await SendRequestAsync(PieceIndex, offset, requestSize);
-                await ReceiveBlockAsync(pieceBuffer);
-                offset += requestSize;
+                while ( !isChoked && inFlight < MaxPipeline && offset < pieceLength)
+                {
+                    int requestSize = Math.Min(BLOCK_SIZE, pieceLength - offset);
+                    await SendRequestAsync(PieceIndex, offset, requestSize);
+
+                    offset += requestSize;
+                    inFlight++;
+                }
+                
+                
+                   var (index,Blockoffset,data) = await ReceiveBlockAsync();
+                if (index != PieceIndex) continue;
+                Buffer.BlockCopy(data, 0, pieceBuffer, Blockoffset, data.Length);
+                if(!receivedOffsets.Contains(Blockoffset)) {receivedOffsets.Add(Blockoffset); receivedBytes += data.Length; }
+                inFlight--;
+                
             }
 
             byte[] hash = SHA1.HashData(pieceBuffer);
@@ -193,7 +211,7 @@ namespace TorrentConsole.Network
 
             Console.WriteLine($"Piece {PieceIndex} verified!");
 
-            using var fs = new FileStream(_metaData.Name, FileMode.OpenOrCreate);
+            using var fs = new FileStream(_metaData.Name, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
             fs.Seek((long)PieceIndex * _metaData.PieceLength, SeekOrigin.Begin);
             fs.Write(pieceBuffer);
            
@@ -214,18 +232,34 @@ namespace TorrentConsole.Network
             await _networkStream.WriteAsync(msg, 0, msg.Length);
         }
 
-        private async Task ReceiveBlockAsync(byte[] buffer) 
-        {
-            int length = await ReadIntAsync();
-            int id = _networkStream.ReadByte();
+        private async Task<(int index, int offset, byte[] data)> ReceiveBlockAsync() 
+        {   while (true) 
+            {
+                int length = await ReadIntAsync();
+                if (length == 0) continue;
+                byte[] idbuffer = new byte[1];
+                await ReadExactAsync(idbuffer, 0, 1);   
+                int id = idbuffer[0];
 
-            if (id != 7) return;
+                if (id == 7)
+                {
+                    int index = await ReadIntAsync();
+                    int begin = await ReadIntAsync();
 
-            int index = await ReadIntAsync();
-            int begin = await ReadIntAsync();
-
-            int blockLength = length - 9;
-            await _networkStream.ReadAsync(buffer, begin, blockLength);
+                    int blockLength = length - 9;
+                    byte[] blockdata = new byte[blockLength];
+                    await ReadExactAsync(blockdata, 0, blockLength);
+                    return (index, begin, blockdata);
+                }
+                else if (id == 0) isChoked = true;
+                else if (id == 1) isChoked = false;
+                else
+                {
+                    byte[] skip = new byte[length - 1];
+                    await ReadExactAsync(skip, 0, length - 1);
+                }
+            }
+                
         }
 
         private static void WriteInt(byte[] buffer, int offset, int value) 
@@ -236,7 +270,7 @@ namespace TorrentConsole.Network
         private async Task<int> ReadIntAsync() 
         {
             byte[] buf = new byte[4];
-            await _networkStream.ReadAsync(buf, 0, 4);
+            await ReadExactAsync(buf, 0, 4);
             return IPAddress.NetworkToHostOrder(BitConverter.ToInt32(buf));
         }
 
@@ -255,20 +289,20 @@ namespace TorrentConsole.Network
             return set;
         }
 
-        private async Task<byte[]> ReadExactAsync(NetworkStream stream, int length) 
+        private async Task ReadExactAsync(byte[] buffer,int offset, int length) 
         {
-            byte[] buffer = new byte[length];
+            
             int totalread = 0;
 
             while (totalread < length) 
             {
-                int read = await stream.ReadAsync(buffer, totalread, length - totalread);
+                int read = await _networkStream.ReadAsync(buffer, totalread + offset, length - totalread);
                 if (read == 0)
                     throw new Exception("Peer closed connection during handshake");
 
                 totalread += read;
             }
-            return buffer;
+            
         }
     
 

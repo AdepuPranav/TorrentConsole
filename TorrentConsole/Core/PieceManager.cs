@@ -6,18 +6,27 @@ using System.Threading.Tasks;
 
 namespace TorrentConsole.Core
 {
+
+    public enum PieceState 
+    { Missing,
+      Downloading,
+      Downloaded
+    }
+
+   
     public class PieceManager
     {
         //the pieces downloaded
-        private readonly bool[] _completed;
+        
 
+        public PieceState[] _state;
         private readonly int pieceCount;
 
         //the peers who have that piece
         private readonly Dictionary<int, HashSet<string>> availability;
 
         //the peers who are currently downloading a piece
-        private readonly Dictionary<int, HashSet<string>> activeDownloads;
+        //private readonly Dictionary<int, HashSet<string>> activeDownloads;
 
         private readonly object _lock = new object();
 
@@ -26,22 +35,23 @@ namespace TorrentConsole.Core
             this.pieceCount = totalPieces;
 
             availability = new Dictionary<int, HashSet<string>>();
-            _completed = new bool[pieceCount];
-            activeDownloads = new Dictionary<int, HashSet<string>>();
+            _state = new PieceState[pieceCount];
+           // activeDownloads = new Dictionary<int, HashSet<string>>();
 
             for (int i = 0; i < pieceCount; i++) 
             {
+                _state[i] = PieceState.Missing;
                 availability[i] = new HashSet<string>();
-                activeDownloads[i] = new HashSet<string>();
+                //activeDownloads[i] = new HashSet<string>();
             }
            
         }
 
-        public bool IsComplete(int index) => _completed[index];
+     
 
         public void MarkComplete(int index)
         {
-            _completed[index] = true;
+            lock(_lock) _state[index] = PieceState.Downloaded;
         }
 
         //Checks available peers for the pieces and add's their peer address to the dictionary
@@ -49,7 +59,7 @@ namespace TorrentConsole.Core
         {
             lock (_lock) 
             {
-                for (int i = 0; i < bitfield.Length; i++) 
+                for (int i = 0; i < bitfield.Length && i < pieceCount; i++) 
                 {
                     if (bitfield[i]) availability[i].Add(PeerID);
                 }
@@ -61,12 +71,12 @@ namespace TorrentConsole.Core
         {
             lock (_lock) 
             {
-                var candidates = availability.Where(p => !_completed[p.Key] && peerPieces.Contains(p.Key) && !activeDownloads[p.Key].Contains(PeerID)).OrderBy(p => p.Value.Count).Select(p => p.Key).ToList();
+                var candidates = availability.Where(p => _state[p.Key] == PieceState.Missing && peerPieces.Contains(p.Key)).OrderBy(p => p.Value.Count).Select(p => p.Key).ToList();
 
                 if (candidates.Count == 0) return null;
                 
                 int selected = candidates[0];
-                activeDownloads[selected].Add(PeerID);
+                _state[selected] = PieceState.Downloading;
 
                 return selected;
             }
@@ -77,8 +87,8 @@ namespace TorrentConsole.Core
         {
             lock (_lock)
             {
-                _completed[PieceIndex] = true;
-                activeDownloads[PieceIndex].Clear();
+                _state[PieceIndex] = PieceState.Downloaded;
+                
             }
         }
 
@@ -87,25 +97,34 @@ namespace TorrentConsole.Core
         {
             lock (_lock) 
             {
-                return availability.Where(p => !_completed[p.Key] && peerPieces.Contains(p.Key)).OrderBy(p => p.Value.Count).Select(p => p.Key).ToList();
+                return availability.Where(p => _state[p.Key] != PieceState.Downloaded && peerPieces.Contains(p.Key)).OrderBy(p => p.Value.Count).Select(p => p.Key).ToList();
             }
         }
 
-        public bool IsComplete() 
+        public bool IsTorrentComplete() 
         {
-            lock (_lock) return _completed.All(x => x);
+            lock (_lock) return _state.All(x => x == PieceState.Downloaded);
         }
+
+        public bool IsComplete(int index) 
+        {
+         lock(_lock) return _state[index] == PieceState.Downloaded;
+        }
+
+        
 
         public void ReleasePiece(int pieceIndex, string peerId)
         {
             lock (_lock)
             {
-                if (activeDownloads.ContainsKey(pieceIndex))
+                if (_state[pieceIndex] == PieceState.Downloading)
                 {
-                    activeDownloads[pieceIndex].Remove(peerId);
+                    _state[pieceIndex] = PieceState.Missing;
                 }
             }
         }
+
+       
 
     }
 }
