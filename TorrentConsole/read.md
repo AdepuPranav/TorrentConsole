@@ -201,6 +201,13 @@ var torrentPath = "debian.torrent";
 
 Then run the project again.
 
+OR
+
+Use the following command :
+```csharp
+dotnet run "torrentfilename.torrent"
+```
+
 ---
 
 # Example Output
