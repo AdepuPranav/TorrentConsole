@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using TorrentConsole.Network;
+using System.Windows.Forms;
 
 namespace TorrentConsole.Core
 {
@@ -13,14 +14,25 @@ namespace TorrentConsole.Core
         private readonly TorrentMetaData _metaData;
         private readonly PieceManager _pieceManager;
         private readonly DiskManager _diskManager;
+        private readonly string _downloadPath;
         private readonly SemaphoreSlim _connectionLimit = new SemaphoreSlim(20);
+        private string finalPath; 
+        private string filePath;
 
-        
 
-        public TorrentClient(TorrentMetaData meta, string outputfile) { 
-             _metaData = meta;
+
+        public TorrentClient(TorrentMetaData meta,string downloadpath)
+        {
+            
+
+            _metaData = meta;
+            _downloadPath = downloadpath;
             _pieceManager = new PieceManager(meta.PieceHashes.Length);
-            _diskManager = new DiskManager(outputfile, meta.PieceLength);
+             finalPath = Path.Combine(_downloadPath, meta.Name);
+            Directory.CreateDirectory(finalPath);
+             filePath = Path.Combine(finalPath, meta.Name);
+            _diskManager = new DiskManager(filePath, meta.PieceLength);
+            Console.WriteLine($"📁 Writing file to: {filePath}");
         }
 
         public void OnPieceDownloaded(int index, byte[] data) 
@@ -62,7 +74,7 @@ namespace TorrentConsole.Core
                                 {
                                     Console.WriteLine($"Peer IP : {peer.IP} /n Peer Port : {peer.Port}");
                                     string peerId = TrackerClient.GeneratePeerId();
-                                    var Conn = new PeerConnection(peer, _metaData, _pieceManager, peerId);
+                                    var Conn = new PeerConnection(peer, _metaData, _pieceManager, peerId,filePath,_diskManager);
                                     await Conn.StartAsync();
                                 }
                                 catch (Exception ex) 
@@ -90,6 +102,8 @@ namespace TorrentConsole.Core
             Console.WriteLine("No trackers responded with peers.");
 
         }
+
+        
 
     }
 }

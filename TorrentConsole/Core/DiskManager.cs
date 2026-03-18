@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace TorrentConsole.Core
 {
@@ -23,5 +24,7 @@ namespace TorrentConsole.Core
             fs.Seek((long)index * _PieceLength, SeekOrigin.Begin);
             fs.Write(data, 0, data.Length);
         }
+
+       
     }
 }

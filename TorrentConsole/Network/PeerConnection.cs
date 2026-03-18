@@ -27,14 +27,19 @@ namespace TorrentConsole.Network
 
         private readonly PieceManager _pieceManager;
         private readonly string _peerId;
+        private readonly string FinalPath;
+        private readonly DiskManager _diskManager;
 
-        public PeerConnection(Peer peer, TorrentMetaData metaData, PieceManager pieceManager, string peerID)
+        public PeerConnection(Peer peer, TorrentMetaData metaData, PieceManager pieceManager, string peerID, string filePath, DiskManager diskManager)
         {
+            
             _peer = peer;
             _metaData = metaData;
             _pieceManager = pieceManager;
             _peerId = peerID;
             _validate = new ValidHandShake();
+            FinalPath = filePath;
+            _diskManager = diskManager;
         }
 
         public async Task StartAsync()
@@ -210,11 +215,12 @@ namespace TorrentConsole.Network
                 throw new Exception("Piece has failed");
 
             Console.WriteLine($"Piece {PieceIndex} verified!");
-
-            using var fs = new FileStream(_metaData.Name, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+            
+            /*using var fs = new FileStream(FinalPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
             fs.Seek((long)PieceIndex * _metaData.PieceLength, SeekOrigin.Begin);
-            fs.Write(pieceBuffer);
-           
+            fs.Write(pieceBuffer); */
+            _diskManager.WritePiece(PieceIndex, pieceBuffer);
+
 
             Console.WriteLine($"Piece {PieceIndex} is saved!!");
 
