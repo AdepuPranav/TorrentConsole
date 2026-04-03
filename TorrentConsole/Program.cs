@@ -14,15 +14,20 @@ namespace TorrentConsole
         [STAThread]
         static async Task Main(string[] args) 
         {
-            if (args.Length == 0) {
+            /* if (args.Length == 0) {
                 Console.WriteLine("Usage : TorrentClient <file.Torrent>");
                 return;
-            }
-            var torrentPath = args[0];
+            } */
+            var torrentPath = GetTorrentFile();
+
             Console.WriteLine("Started!!!");
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-
+            if (string.IsNullOrEmpty(torrentPath)) 
+            {
+                MessageBox.Show("No Torrent file is selected", " ERROR !", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             string outputfile = SelectFolder();
             if (string.IsNullOrEmpty(outputfile)) {  return; }
             var downloadpath = outputfile;
@@ -62,6 +67,33 @@ namespace TorrentConsole
             return selectedPath;
 
 
+        }
+
+        public static string GetTorrentFile() 
+        {
+            string selectedfile = null;
+            var thread = new Thread(() =>
+            {
+                using (var dialog = new OpenFileDialog()) 
+                {
+                    Console.WriteLine("Entered Selectfile function.....");
+                    dialog.Filter = "Torrent Files (*.torrent)|*.torrent";
+                    dialog.Title = "Select Torrent File";
+                    if (dialog.ShowDialog() == DialogResult.OK) 
+                    {
+                        selectedfile = dialog.FileName;
+                    }
+                }
+            
+            }
+
+
+            );
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+
+            return selectedfile;
         }
 
 

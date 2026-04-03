@@ -29,6 +29,7 @@ namespace TorrentConsole.Core
         //private readonly Dictionary<int, HashSet<string>> activeDownloads;
 
         private readonly object _lock = new object();
+        private TorrentClient Tclient; 
 
         public PieceManager(int totalPieces)
         {
@@ -104,6 +105,7 @@ namespace TorrentConsole.Core
         public bool IsTorrentComplete() 
         {
             lock (_lock) return _state.All(x => x == PieceState.Downloaded);
+            Tclient.EndLog();
         }
 
         public bool IsComplete(int index) 

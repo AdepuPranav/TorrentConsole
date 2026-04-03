@@ -29,8 +29,9 @@ namespace TorrentConsole.Network
         private readonly string _peerId;
         private readonly string FinalPath;
         private readonly DiskManager _diskManager;
+        private readonly TorrentClient _Tclient;
 
-        public PeerConnection(Peer peer, TorrentMetaData metaData, PieceManager pieceManager, string peerID, string filePath, DiskManager diskManager)
+        public PeerConnection(Peer peer, TorrentMetaData metaData, PieceManager pieceManager, string peerID, string filePath, DiskManager diskManager,TorrentClient client)
         {
             
             _peer = peer;
@@ -40,6 +41,7 @@ namespace TorrentConsole.Network
             _validate = new ValidHandShake();
             FinalPath = filePath;
             _diskManager = diskManager;
+            _Tclient = client;
         }
 
         public async Task StartAsync()
@@ -70,6 +72,7 @@ namespace TorrentConsole.Network
             await Interested();
 
             await WaitforUnchokeAsync();
+            
             while (!_pieceManager.IsTorrentComplete()) 
             {
                 var availablePieces = GetPeerPieces();
@@ -203,11 +206,14 @@ namespace TorrentConsole.Network
                 
                 
                    var (index,Blockoffset,data) = await ReceiveBlockAsync();
+                Interlocked.Add(ref _Tclient._totalBytesDownloaded, data.Length);
                 if (index != PieceIndex) continue;
                 Buffer.BlockCopy(data, 0, pieceBuffer, Blockoffset, data.Length);
                 if(!receivedOffsets.Contains(Blockoffset)) {receivedOffsets.Add(Blockoffset); receivedBytes += data.Length; }
                 inFlight--;
                 
+
+
             }
 
             byte[] hash = SHA1.HashData(pieceBuffer);
@@ -223,6 +229,9 @@ namespace TorrentConsole.Network
 
 
             Console.WriteLine($"Piece {PieceIndex} is saved!!");
+            _Tclient.UpdateSpeed();
+            _Tclient.LogStats();
+
 
         }
 
