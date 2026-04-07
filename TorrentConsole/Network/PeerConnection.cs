@@ -85,11 +85,13 @@ namespace TorrentConsole.Network
                 try
                 {
                     await DownloadPiece(piece.Value);
-                    _pieceManager.MarkPieceCompleted(piece.Value);
+                    
                 }
-                catch 
+                catch(Exception ex) 
                 {
+                    Console.WriteLine($"{_peer.IP} Connection dropped : {ex.Message}");
                     _pieceManager.ReleasePiece(piece.Value, _peerId);
+                    break;
                 }
             }
             
@@ -123,21 +125,18 @@ namespace TorrentConsole.Network
 
         private async Task bitfieldreceive()
         {
-            byte[] Bitfieldmsg = new byte[4];
-            await _networkStream.ReadAsync(Bitfieldmsg, 0, 4);
-            int length = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(Bitfieldmsg));
-
+            int length = await ReadIntAsync();
             if (length == 0) return;
+
             int messageId = _networkStream.ReadByte();
-            if (messageId != 5) return;
             if (messageId == 5)
             {
                 byte[] bitfield = new byte[length - 1];
-                await _networkStream.ReadAsync(bitfield, 0, length - 1);
+                await ReadExactAsync(bitfield, 0, length - 1);
                 _peer.Bitfield = bitfield;
                 bool[] pieces = new bool[_metaData.PieceHashes.Length];
 
-                for (int i = 0; i < pieces.Length; i++) 
+                for (int i = 0; i < pieces.Length; i++)
                 {
                     int byteIndex = i / 8;
                     int bitIndex = 7 - (i % 8);
@@ -145,14 +144,19 @@ namespace TorrentConsole.Network
                     {
                         pieces[i] = (bitfield[byteIndex] & (1 << bitIndex)) != 0;
                     }
-
                 }
                 _pieceManager.UpdatePeerBitfield(_peerId, pieces);
                 Console.WriteLine("Bitfield Received");
             }
-
-
+            else
+            {
+                byte[] skip = new byte[length - 1];
+                await ReadExactAsync(skip, 0, length - 1);
+            }
         }
+
+
+        
 
         private async Task Interested()
         {
@@ -170,68 +174,110 @@ namespace TorrentConsole.Network
             while (true) 
             {
                 int length = await ReadIntAsync();
+                if (length == 0) continue;
                 int id = _networkStream.ReadByte();
 
-                if(id == 1)
+                if (id == 1)
                 {
 
                     Console.WriteLine("Unchoked !!");
                     return;
+                }
+
+                else 
+                {
+                    byte[] skip = new byte[length - 1];
+                    await ReadExactAsync(skip, 0, length - 1);
                 }
             }
         }
 
         private async Task DownloadPiece(int PieceIndex) 
         {
-            int pieceLength = (PieceIndex == _metaData.PieceHashes.Length - 1) ? (int)(_metaData.Length - (long)PieceIndex * _metaData.PieceLength) : _metaData.PieceLength;
-            byte[] pieceBuffer = new byte[pieceLength];
-        
+            int pieceLength = (PieceIndex == _metaData.PieceHashes.Length - 1)
+         ? (int)(_metaData.Length - (long)PieceIndex * _metaData.PieceLength)
+         : _metaData.PieceLength;
+
+            _pieceManager.InitializeBlocks(PieceIndex, pieceLength);
+
             int MaxPipeline = 5;
             int inFlight = 0;
-            
+            HashSet<int> pendingBlocks = new HashSet<int>();
 
-            var receivedOffsets = new HashSet<int>();
-            int receivedBytes = 0;  
-            int offset = 0;
-            while (receivedBytes < pieceLength)
+            try
             {
-                while ( !isChoked && inFlight < MaxPipeline && offset < pieceLength)
+                while (true)
                 {
-                    int requestSize = Math.Min(BLOCK_SIZE, pieceLength - offset);
-                    await SendRequestAsync(PieceIndex, offset, requestSize);
+                    if (_pieceManager.IsPieceComplete(PieceIndex)) break;
 
-                    offset += requestSize;
-                    inFlight++;
+                    while (!isChoked && inFlight < MaxPipeline)
+                    {
+                        int? offset = _pieceManager.GetNextMissingBlock(PieceIndex);
+                        if (offset == null) break;
+
+                        int requestSize = Math.Min(BLOCK_SIZE, pieceLength - offset.Value);
+                        await SendRequestAsync(PieceIndex, offset.Value, requestSize);
+                        pendingBlocks.Add(offset.Value);
+                        inFlight++;
+                    }
+
+                    if (inFlight > 0)
+                    {
+                        var result = await ReceiveBlockAsync();
+                        if (result == null) // We got Choked and pending requests were dropped
+                        {
+                            if (isChoked) {
+
+                                _pieceManager.ReleaseBlocks(PieceIndex, pendingBlocks);
+                                pendingBlocks.Clear();
+                                inFlight = 0;
+                            }                      
+                            continue;
+                        }
+
+                        var (index, Blockoffset, data) = result.Value;
+                        Interlocked.Add(ref _Tclient._totalBytesDownloaded, data.Length);
+
+                        if (index == PieceIndex)
+                        {
+                            _diskManager.WriteBlock(index, Blockoffset, data);
+                            _pieceManager.MarkBlockDownloaded(index, Blockoffset);
+                            pendingBlocks.Remove(Blockoffset);
+                            inFlight--;
+                        }
+                    }
+                    else if (isChoked)
+                    {
+                        await ReceiveBlockAsync();
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
-                
-                
-                   var (index,Blockoffset,data) = await ReceiveBlockAsync();
-                Interlocked.Add(ref _Tclient._totalBytesDownloaded, data.Length);
-                if (index != PieceIndex) continue;
-                Buffer.BlockCopy(data, 0, pieceBuffer, Blockoffset, data.Length);
-                if(!receivedOffsets.Contains(Blockoffset)) {receivedOffsets.Add(Blockoffset); receivedBytes += data.Length; }
-                inFlight--;
-                
 
+                if (_pieceManager.TryMarkVerifying(PieceIndex))
+                {
+                    byte[] pieceData = _diskManager.ReadPiece(PieceIndex, pieceLength);
+                    byte[] hash = SHA1.HashData(pieceData);
 
+                    if (!hash.AsSpan().SequenceEqual(_metaData.PieceHashes[PieceIndex]))
+                    {
+                        _pieceManager.ReleasePiece(PieceIndex, _peerId);
+                        throw new Exception($"Piece {PieceIndex} hash check failed.");
+                    }
+
+                    _pieceManager.MarkComplete(PieceIndex);
+                    Console.WriteLine($"Piece {PieceIndex} verified and saved!");
+                    _Tclient.UpdateSpeed();
+                    _Tclient.LogStats();
+                }
             }
-
-            byte[] hash = SHA1.HashData(pieceBuffer);
-            if (!hash.AsSpan().SequenceEqual(_metaData.PieceHashes[PieceIndex]))
-                throw new Exception("Piece has failed");
-
-            Console.WriteLine($"Piece {PieceIndex} verified!");
-            
-            /*using var fs = new FileStream(FinalPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
-            fs.Seek((long)PieceIndex * _metaData.PieceLength, SeekOrigin.Begin);
-            fs.Write(pieceBuffer); */
-            _diskManager.WritePiece(PieceIndex, pieceBuffer);
-
-
-            Console.WriteLine($"Piece {PieceIndex} is saved!!");
-            _Tclient.UpdateSpeed();
-            _Tclient.LogStats();
-
+            catch
+            {
+                _pieceManager.ReleaseBlocks(PieceIndex, pendingBlocks);
+                throw;
+            }
 
         }
 
@@ -247,13 +293,15 @@ namespace TorrentConsole.Network
             await _networkStream.WriteAsync(msg, 0, msg.Length);
         }
 
-        private async Task<(int index, int offset, byte[] data)> ReceiveBlockAsync() 
-        {   while (true) 
+        private async Task<(int index, int offset, byte[] data)?> ReceiveBlockAsync() 
+        {
+            while (true)
             {
                 int length = await ReadIntAsync();
                 if (length == 0) continue;
+
                 byte[] idbuffer = new byte[1];
-                await ReadExactAsync(idbuffer, 0, 1);   
+                await ReadExactAsync(idbuffer, 0, 1);
                 int id = idbuffer[0];
 
                 if (id == 7)
@@ -266,15 +314,23 @@ namespace TorrentConsole.Network
                     await ReadExactAsync(blockdata, 0, blockLength);
                     return (index, begin, blockdata);
                 }
-                else if (id == 0) isChoked = true;
-                else if (id == 1) isChoked = false;
+                else if (id == 0)
+                {
+                    isChoked = true;
+                    return null;
+                }
+                else if (id == 1)
+                {
+                    isChoked = false;
+                    return null;
+                }
                 else
                 {
                     byte[] skip = new byte[length - 1];
                     await ReadExactAsync(skip, 0, length - 1);
                 }
             }
-                
+
         }
 
         private static void WriteInt(byte[] buffer, int offset, int value) 
